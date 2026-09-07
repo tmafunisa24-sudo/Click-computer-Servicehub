@@ -1,0 +1,102 @@
+@model ServiceHub_IT.DTOs.EmployeeDashboardViewModel
+@{
+    ViewData["Title"] = "Client Dashboard";
+    Layout = "_Layout";
+}
+
+<div class="dashboard-page container-fluid">
+    <div class="dashboard-header">
+        <div>
+            <span class="hero-badge"><i class="bi bi-person-badge"></i> Client</span>
+            <h1>Client Dashboard</h1>
+            <p>Click computer and accessories repair support, all in one place.</p>
+        </div>
+        <div class="topbar-pill"><i class="bi bi-clipboard-check me-2"></i>My workspace</div>
+    </div>
+
+    <div class="dashboard-stats">
+        <div class="summary-card">
+            <div class="stat-top">
+                <div>
+                    <div class="stat-value">@Model.ResolvedCount</div>
+                    <div class="stat-label">Resolved Tickets</div>
+                </div>
+                <div class="stat-icon"><i class="bi bi-check2-circle"></i></div>
+            </div>
+        </div>
+        <div class="summary-card">
+            <div class="stat-top">
+                <div>
+                    <div class="stat-value">@Model.PendingCount</div>
+                    <div class="stat-label">Pending Tickets</div>
+                </div>
+                <div class="stat-icon"><i class="bi bi-hourglass-split"></i></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-xl-7">
+            <div class="table-card">
+                <div class="p-4">
+                        <h5 class="mb-3">My Repair Requests</h5>
+                    @if (Model.Tickets.Any())
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Title</th>
+                                        <th>Assigned Technician</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var ticket in Model.Tickets)
+                                    {
+                                        <tr>
+                                            <td>@ticket.title</td>
+                                            <td>@(string.IsNullOrWhiteSpace(ticket.assigned_technician) ? "Waiting" : ticket.assigned_technician)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="empty-state mt-3">
+                            <i class="bi bi-ticket-detailed"></i>
+                            <h3>No repair requests yet</h3>
+                            <p>Choose a device to submit your first repair request.</p>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-5">
+            <div class="table-card">
+                <div class="p-4">
+                    <h5 class="mb-3">Assigned Assets</h5>
+                    @if (Model.Assets.Any())
+                    {
+                        <ul class="list-group list-group-flush">
+                            @foreach (var asset in Model.Assets)
+                            {
+                                <li class="list-group-item">@asset.asset_name (@asset.status)</li>
+                            }
+                        </ul>
+                    }
+                    else
+                    {
+                        <div class="empty-state">
+                            <i class="bi bi-hdd-stack"></i>
+                            <h3>No assets assigned</h3>
+                            <p>Once assets are assigned, they will appear here.</p>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
