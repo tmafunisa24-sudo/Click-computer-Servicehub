@@ -1,4 +1,4 @@
-﻿# ── ASP.NET build artifacts ──
+# ── ASP.NET build artifacts ──
 aspnet/bin/
 aspnet/obj/
 aspnet/.vs/
@@ -7,25 +7,30 @@ aspnet/*.user
 aspnet/*.suo
 aspnet/*.dll
 aspnet/*.pdb
+
 # ── ASP.NET user-specific config ──
 aspnet/appsettings.Development.json
 aspnet/appsettings.Local.json
 aspnet/appsettings.Production.json
 aspnet/*.secrets.json
+
 # ── Flutter build artifacts ──
 flutter/.dart_tool/
 flutter/.packages
 flutter/build/
 flutter/.flutter-plugins
 flutter/.flutter-plugins-dependencies
+
 # ── IDE / Editor ──
 .idea/
 .vscode/
 *.iml
 *.swp
+
 # ── Logs ──
 *.log
 logs/
+
 # ── OS ──
 .DS_Store
 Thumbs.db
