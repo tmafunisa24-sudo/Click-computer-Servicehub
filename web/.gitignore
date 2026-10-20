@@ -1,0 +1,9 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+.mp-obj/
+validation-bin/
+appsettings.Development.json
+appsettings.*.local.json
