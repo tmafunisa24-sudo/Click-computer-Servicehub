@@ -17,6 +17,9 @@ public class Ticket
     public string requester { get; set; } = string.Empty;
     public string priority { get; set; } = "Medium";
     public string status { get; set; } = "Open";
+    [JsonPropertyName("technician_id")]
+    public Guid? technician_id { get; set; }
+    // Kept for compatibility with older ticket rows that stored the technician email.
     public string? assigned_technician { get; set; }
     public string category { get; set; } = string.Empty;
     public string? payment_method { get; set; }

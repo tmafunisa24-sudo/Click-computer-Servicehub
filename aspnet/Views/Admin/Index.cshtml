@@ -71,7 +71,6 @@
                                     <h3 class="fw-bold mb-3">@performance.TopTechnicianName</h3>
                                     <div class="fs-5 fw-semibold text-success mb-2">@performance.TopTechnicianResolvedTickets Tickets Resolved</div>
                                     <div class="text-muted mb-2">Average Resolution<br /><span class="fw-semibold text-dark">@performance.TopTechnicianAverageResolutionHours.ToString("0.0") Hours</span></div>
-                                    <div class="fs-4 text-warning">@performance.TopTechnicianRatingLabel</div>
                                 </div>
                             </div>
                         </div>
@@ -87,7 +86,6 @@
                                                     <th>Assigned Tickets</th>
                                                     <th>Resolved Tickets</th>
                                                     <th>Average Resolution</th>
-                                                    <th>Rating</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -100,7 +98,6 @@
                                                         <td>@row.AssignedTickets</td>
                                                         <td>@row.ResolvedTickets</td>
                                                         <td>@row.AverageResolutionHours.ToString("0.0") Hours</td>
-                                                        <td class="text-warning fw-semibold">@row.RatingLabel</td>
                                                     </tr>
                                                 }
                                             </tbody>
@@ -120,29 +117,32 @@
         <div class="col-lg-7">
             <div class="card p-4">
                 <h5 class="fw-semibold mb-3">Recent Tickets</h5>
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle">
-                        <thead><tr><th>Title</th><th>Status</th><th>Assigned</th></tr></thead>
-                        <tbody>
-                            @foreach (var ticket in Model.Tickets.Take(8))
-                            {
-                                <tr>
-                                    <td>@ticket.title</td>
-                                    <td><span class="badge bg-secondary">@ticket.status</span></td>
-                                    <td>@(string.IsNullOrWhiteSpace(ticket.assigned_technician) ? "Unassigned" : ticket.assigned_technician)</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-5">
-            <div class="card p-4">
-                <h5 class="fw-semibold mb-3">Assets and Staff</h5>
-                <p class="mb-2"><strong>Assets tracked:</strong> @Model.Assets.Count</p>
-                <p class="mb-2"><strong>Registered profiles:</strong> @Model.Profiles.Count</p>
-                <p class="mb-0"><a class="btn btn-outline-primary btn-sm" href="/Admin/Assets">Manage Assets</a></p>
+                        @if (Model.Tickets.Any())
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle">
+                                    <thead><tr><th>Title</th><th>Status</th><th>Assigned</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var ticket in Model.Tickets.Take(8))
+                                        {
+                                            <tr>
+                                                <td><a asp-controller="Tickets" asp-action="Details" asp-route-id="@ticket.id">@ticket.title</a></td>
+                                                <td><span class="badge bg-secondary">@ticket.status</span></td>
+                                                <td>@(string.IsNullOrWhiteSpace(ticket.assigned_technician) ? (ticket.technician_id.HasValue ? "Assigned" : "Unassigned") : ticket.assigned_technician)</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="empty-state">
+                                <i class="bi bi-ticket-detailed"></i>
+                                <h3>No tickets yet</h3>
+                                <p>New support tickets will appear here.</p>
+                            </div>
+                        }
             </div>
         </div>
     </div>

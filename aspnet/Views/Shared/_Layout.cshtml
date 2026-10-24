@@ -35,21 +35,17 @@
                 {
                     <li class="nav-item"><a class="nav-link @(currentController == "Admin" ? "active" : "")" asp-controller="Admin" asp-action="Index"><i class="bi bi-speedometer2 me-2"></i>Dashboard</a></li>
                     <li class="nav-item"><a class="nav-link @(currentController == "Tickets" ? "active" : "")" asp-controller="Tickets" asp-action="Index"><i class="bi bi-ticket-detailed me-2"></i>Tickets</a></li>
-                    <li class="nav-item"><a class="nav-link @(currentController == "Assets" ? "active" : "")" asp-controller="Assets" asp-action="Index"><i class="bi bi-hdd-stack me-2"></i>Assets</a></li>
                     <li class="nav-item"><a class="nav-link @(currentController == "Admin" && currentAction == "Users" ? "active" : "")" asp-controller="Admin" asp-action="Users"><i class="bi bi-people me-2"></i>Users</a></li>
-                    <li class="nav-item"><a class="nav-link @(currentController == "Maintenance" ? "active" : "")" asp-controller="Maintenance" asp-action="Index"><i class="bi bi-wrench-adjustable me-2"></i>Maintenance</a></li>
-                    <li class="nav-item"><a class="nav-link @(currentController == "Departments" ? "active" : "")" asp-controller="Departments" asp-action="Index"><i class="bi bi-diagram-3 me-2"></i>Departments</a></li>
                     <li class="nav-item"><a class="nav-link @(currentController == "Reports" ? "active" : "")" asp-controller="Reports" asp-action="Index"><i class="bi bi-bar-chart-line me-2"></i>Reports</a></li>
                     <li class="nav-item"><a class="nav-link @(currentController == "Notifications" ? "active" : "")" asp-controller="Notifications" asp-action="Index"><i class="bi bi-bell me-2"></i>Notifications</a></li>
-                    <li class="nav-item"><a class="nav-link" asp-controller="Home" asp-action="Privacy"><i class="bi bi-person-circle me-2"></i>Profile</a></li>
+                    <li class="nav-item"><a class="nav-link" asp-controller="Home" asp-action="Privacy"><i class="bi bi-person-circle me-2"></i>Privacy</a></li>
                 }
                 else if (role == "Technician")
                 {
                     <li class="nav-item"><a class="nav-link @(currentController == "Technician" ? "active" : "")" asp-controller="Technician" asp-action="Index"><i class="bi bi-speedometer2 me-2"></i>Dashboard</a></li>
                     <li class="nav-item"><a class="nav-link @(currentController == "Tickets" ? "active" : "")" asp-controller="Tickets" asp-action="Index"><i class="bi bi-ticket-detailed me-2"></i>My Assigned Tickets</a></li>
-                    <li class="nav-item"><a class="nav-link @(currentController == "Maintenance" ? "active" : "")" asp-controller="Maintenance" asp-action="Index"><i class="bi bi-wrench-adjustable me-2"></i>Maintenance</a></li>
                     <li class="nav-item"><a class="nav-link @(currentController == "Notifications" ? "active" : "")" asp-controller="Notifications" asp-action="Index"><i class="bi bi-bell me-2"></i>Notifications</a></li>
-                    <li class="nav-item"><a class="nav-link" asp-controller="Home" asp-action="Privacy"><i class="bi bi-person-circle me-2"></i>Profile</a></li>
+                    <li class="nav-item"><a class="nav-link" asp-controller="Home" asp-action="Privacy"><i class="bi bi-person-circle me-2"></i>Privacy</a></li>
                 }
                 else
                 {
@@ -57,8 +53,8 @@
                     <li class="nav-item"><a class="nav-link @(currentController == "Tickets" && currentAction == "Create" ? "active" : "")" asp-controller="Tickets" asp-action="Create"><i class="bi bi-device-ssd me-2"></i>Devices</a></li>
                     <li class="nav-item"><a class="nav-link @(currentController == "Tickets" && currentAction != "Create" ? "active" : "")" asp-controller="Tickets" asp-action="Index"><i class="bi bi-ticket-detailed me-2"></i>My Repair Requests</a></li>
                     <li class="nav-item"><a class="nav-link @(currentController == "Notifications" ? "active" : "")" asp-controller="Notifications" asp-action="Index"><i class="bi bi-bell me-2"></i>Notifications</a></li>
-                    <li class="nav-item"><a class="nav-link @(currentController == "Employee" && currentAction == "ContactSupport" ? "active" : "")" asp-controller="Employee" asp-action="ContactSupport"><i class="bi bi-life-preserver me-2"></i>Contact Support</a></li>
-                    <li class="nav-item"><a class="nav-link" asp-controller="Home" asp-action="Privacy"><i class="bi bi-person-circle me-2"></i>Profile</a></li>
+                    <li class="nav-item"><a class="nav-link @(currentController == "Employee" && currentAction == "ClientEnquiry" ? "active" : "")" asp-controller="Employee" asp-action="ClientEnquiry"><i class="bi bi-life-preserver me-2"></i>Client Enquiry</a></li>
+                    <li class="nav-item"><a class="nav-link" asp-controller="Home" asp-action="Privacy"><i class="bi bi-person-circle me-2"></i>Privacy</a></li>
                 }
             </ul>
         </aside>

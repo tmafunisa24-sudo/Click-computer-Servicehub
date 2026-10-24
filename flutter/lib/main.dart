@@ -11,10 +11,6 @@ import 'viewmodels/create_ticket_viewmodel.dart';
 import 'viewmodels/notification_viewmodel.dart';
 import 'viewmodels/asset_viewmodel.dart';
 import 'viewmodels/dashboard_viewmodel.dart';
-import 'viewmodels/user_viewmodel.dart';
-import 'viewmodels/maintenance_viewmodel.dart';
-import 'viewmodels/department_viewmodel.dart';
-import 'viewmodels/report_viewmodel.dart';
 //================================================
 
 Future<void> main() async {
@@ -44,18 +40,6 @@ Future<void> main() async {
         ChangeNotifierProvider(
           create: (_) => DashboardViewModel(),
         ),
-        ChangeNotifierProvider(
-          create: (_) => UserViewModel(),
-        ),
-        ChangeNotifierProvider(
-          create: (_) => MaintenanceViewModel(),
-        ),
-        ChangeNotifierProvider(
-          create: (_) => DepartmentViewModel(),
-        ),
-        ChangeNotifierProvider(
-          create: (context) => ReportViewModel(),
-        )
       ],
       child: const _AppLifecycleHandler(
         child: ServiceHubApp(),

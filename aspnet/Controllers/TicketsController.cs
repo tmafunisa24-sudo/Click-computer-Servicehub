@@ -35,7 +35,7 @@ public class TicketsController : Controller
         }
         else if (User.IsInRole("Technician"))
         {
-            tickets = await _ticketService.GetTicketsAsync(assignedTechnician: email, cancellationToken: cancellationToken);
+            tickets = await _ticketService.GetTechnicianTicketsAsync(GetCurrentProfileId(), email, cancellationToken);
         }
         else
         {
@@ -145,7 +145,9 @@ public class TicketsController : Controller
             category = model.Category,
             payment_status = "Pending",
             comments = string.Empty,
+            // Initial technician assignment is handled by the Supabase BEFORE INSERT trigger.
             assigned_technician = null,
+            technician_id = null,
             status = "Open",
             created_at = DateTime.UtcNow,
             updated_at = DateTime.UtcNow
@@ -199,35 +201,106 @@ public class TicketsController : Controller
             }
 
             var ticketLink = Url.Action("Details", "Tickets", new { id = ticket.id }) ?? $"/Tickets/Details?id={ticket.id}";
-            var adminProfiles = (await _supabaseService.GetProfilesByRoleAsync("Admin", cancellationToken))
-                .Where(profile => profile is not null && profile.Id != Guid.Empty)
-                .GroupBy(profile => profile.Id)
-                .Select(group => group.First())
-                .ToList();
+            var shortTicketId = !string.IsNullOrWhiteSpace(ticket.ticket_number)
+                ? ticket.ticket_number
+                : string.IsNullOrWhiteSpace(ticket.id)
+                    ? "unknown"
+                    : ticket.id[..Math.Min(ticket.id.Length, 8)];
+            var deviceType = string.IsNullOrWhiteSpace(ticket.device_type) ? "device" : ticket.device_type.Trim();
+            var problem = !string.IsNullOrWhiteSpace(ticket.problem_type)
+                ? ticket.problem_type.Trim()
+                : !string.IsNullOrWhiteSpace(ticket.problem_category)
+                    ? ticket.problem_category.Trim()
+                    : ticket.category?.Trim();
+            var problemDetails = string.IsNullOrWhiteSpace(problem) ? string.Empty : $" Problem: {problem}.";
+            var technicianId = ticket.technician_id.GetValueOrDefault();
+            Profile? assignedTechnician = null;
+            if (technicianId != Guid.Empty)
+            {
+                try
+                {
+                    assignedTechnician = await _supabaseService.GetProfileByIdAsync(technicianId, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to resolve automatically assigned technician {TechnicianId} for ticket {TicketId}.", technicianId, ticket.id);
+                }
+            }
+
+            var technicianName = !string.IsNullOrWhiteSpace(assignedTechnician?.FullName)
+                ? assignedTechnician.FullName
+                : !string.IsNullOrWhiteSpace(assignedTechnician?.Email)
+                    ? assignedTechnician.Email
+                    : !string.IsNullOrWhiteSpace(ticket.assigned_technician)
+                        ? ticket.assigned_technician
+                        : "the assigned technician";
+            var adminMessage = technicianId == Guid.Empty
+                ? $"New {deviceType} ticket #{shortTicketId} was created by {requesterName}; automatic technician assignment was not returned.{problemDetails}"
+                : $"New {deviceType} ticket #{shortTicketId} was created by {requesterName} and automatically assigned to {technicianName}.{problemDetails}";
+            var technicianMessage = $"New {deviceType} ticket #{shortTicketId} has been automatically assigned to you.{problemDetails}";
+            var notifiedProfileIds = new HashSet<Guid>();
+
+            List<Profile> adminProfiles;
+            try
+            {
+                adminProfiles = (await _supabaseService.GetProfilesByRoleAsync("Admin", cancellationToken))
+                    .Where(profile => profile is not null && profile.Id != Guid.Empty)
+                    .GroupBy(profile => profile.Id)
+                    .Select(group => group.First())
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                adminProfiles = new List<Profile>();
+                _logger.LogError(ex, "Failed to load Admin profiles for new ticket {TicketId} notifications.", ticket.id);
+            }
 
             if (adminProfiles.Count == 0)
             {
                 _logger.LogWarning("TicketsController.Create no admin profiles found for ticket {TicketId}.", ticket.id);
             }
-            else
+
+            foreach (var adminProfile in adminProfiles)
             {
-                foreach (var adminProfile in adminProfiles)
+                if (!notifiedProfileIds.Add(adminProfile.Id))
                 {
-                    try
-                    {
-                        _logger.LogInformation("Creating new ticket notification for admin {AdminUserId} for ticket {TicketId}", adminProfile.Id, ticket.id);
-                        await _notificationService.CreateNotificationAsync(
-                            adminProfile.Id,
-                            "New Support Ticket",
-                            $"A new support ticket '{ticket.title}' has been created by {requesterName}.",
-                            "new_ticket",
-                            ticketLink,
-                            cancellationToken);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to create new ticket notification for admin {AdminUserId} for ticket {TicketId}", adminProfile.Id, ticket.id);
-                    }
+                    continue;
+                }
+
+                var isAssignedTechnician = adminProfile.Id == technicianId;
+                try
+                {
+                    _logger.LogInformation("Creating new ticket notification for admin {AdminUserId} for ticket {TicketId}", adminProfile.Id, ticket.id);
+                    await _notificationService.CreateNotificationAsync(
+                        adminProfile.Id,
+                        isAssignedTechnician ? "New Ticket Assigned" : "New Ticket Created",
+                        isAssignedTechnician ? technicianMessage : adminMessage,
+                        isAssignedTechnician ? "ticket_assigned" : "new_ticket",
+                        ticketLink,
+                        cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to create new ticket notification for admin {AdminUserId} for ticket {TicketId}", adminProfile.Id, ticket.id);
+                }
+            }
+
+            if (technicianId != Guid.Empty && notifiedProfileIds.Add(technicianId))
+            {
+                try
+                {
+                    _logger.LogInformation("Creating automatic assignment notification for technician {TechnicianId} for ticket {TicketId}", technicianId, ticket.id);
+                    await _notificationService.CreateNotificationAsync(
+                        technicianId,
+                        "New Ticket Assigned",
+                        technicianMessage,
+                        "ticket_assigned",
+                        ticketLink,
+                        cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to create automatic assignment notification for technician {TechnicianId} for ticket {TicketId}", technicianId, ticket.id);
                 }
             }
 
@@ -260,6 +333,11 @@ public class TicketsController : Controller
         }
 
         if (User.IsInRole("Client") && ticket.employee_id != GetCurrentProfileId())
+        {
+            return Forbid();
+        }
+
+        if (User.IsInRole("Technician") && !User.IsInRole("Admin") && !IsAssignedToCurrentTechnician(ticket))
         {
             return Forbid();
         }
@@ -365,7 +443,7 @@ public class TicketsController : Controller
     [HttpPost]
     [ValidateAntiForgeryToken]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> AssignTechnician(string id, string assignedTechnician, DateTime? dueDate, CancellationToken cancellationToken)
+    public async Task<IActionResult> UpdateDueDate(string id, DateTime? dueDate, bool returnToIndex = false, CancellationToken cancellationToken = default)
     {
         var ticket = await _ticketService.GetTicketByIdAsync(id, cancellationToken);
         if (ticket is null)
@@ -373,43 +451,16 @@ public class TicketsController : Controller
             return NotFound();
         }
 
-        if (User.IsInRole("Client") && ticket.employee_id != GetCurrentProfileId())
-        {
-            return Forbid();
-        }
-
-        ticket.assigned_technician = assignedTechnician;
-        ticket.status = "Assigned";
         ticket.due_date = dueDate;
         ticket.updated_at = DateTime.UtcNow;
-
-        var updated = await _ticketService.UpdateTicketAsync(ticket, cancellationToken);
-        if (!updated)
+        if (!await _ticketService.UpdateTicketAsync(ticket, cancellationToken))
         {
-            TempData["Error"] = "Unable to assign the technician.";
-            return RedirectToAction(nameof(Index));
+            TempData["Error"] = "Unable to update the due date.";
+            return RedirectToAction(returnToIndex ? nameof(Index) : nameof(Details), new { id });
         }
 
-        var ticketLink = Url.Action("Details", "Tickets", new { id = ticket.id }) ?? $"/Tickets/Details?id={ticket.id}";
-        var technicianProfile = await ResolveProfileAsync(assignedTechnician, cancellationToken);
-        if (technicianProfile is null || technicianProfile.Id == Guid.Empty)
-        {
-            _logger.LogWarning("TicketsController.AssignTechnician could not resolve technician profile for assignment value {AssignedTechnician} for ticket {TicketId}.", assignedTechnician, ticket.id);
-        }
-        else
-        {
-            _logger.LogInformation("Creating assignment notification for technician {TechnicianUserId} for ticket {TicketId}", technicianProfile.Id, ticket.id);
-            await _notificationService.CreateNotificationAsync(
-                technicianProfile.Id,
-                "New Ticket Assigned",
-                $"Ticket '{ticket.title}' has been assigned to you.",
-                "ticket_assigned",
-                ticketLink,
-                cancellationToken);
-        }
-
-        TempData["Success"] = "Technician assigned successfully.";
-        return RedirectToAction(nameof(Index));
+        TempData["Success"] = "Due date updated successfully.";
+        return RedirectToAction(returnToIndex ? nameof(Index) : nameof(Details), new { id });
     }
 
     [HttpPost]
@@ -423,7 +474,19 @@ public class TicketsController : Controller
             return NotFound();
         }
 
+        if (User.IsInRole("Technician") && !User.IsInRole("Admin") && !IsAssignedToCurrentTechnician(ticket))
+        {
+            return Forbid();
+        }
+
         var normalizedStatus = NormalizeStatus(model.Status);
+        if (User.IsInRole("Technician") && !User.IsInRole("Admin")
+            && normalizedStatus is not ("In Progress" or "Resolved" or "Closed"))
+        {
+            TempData["Error"] = "Technicians may only set tickets to In Progress, Resolved, or Closed.";
+            return RedirectToAction(nameof(Details), new { id });
+        }
+
         if (!CanTransition(ticket.status, normalizedStatus))
         {
             TempData["Error"] = "Status updates must follow the required workflow order.";
@@ -436,11 +499,6 @@ public class TicketsController : Controller
         if (model.DueDate.HasValue)
         {
             ticket.due_date = model.DueDate.Value;
-        }
-
-        if (!string.IsNullOrWhiteSpace(model.AssignedTechnician))
-        {
-            ticket.assigned_technician = model.AssignedTechnician;
         }
 
         if (!string.IsNullOrWhiteSpace(model.Comment))
@@ -467,10 +525,13 @@ public class TicketsController : Controller
             ticketLink,
             cancellationToken);
 
-        if (!string.IsNullOrWhiteSpace(ticket.assigned_technician) && !string.Equals(ticket.assigned_technician, ticket.requester, StringComparison.OrdinalIgnoreCase))
+        var assignedTechnician = !string.IsNullOrWhiteSpace(ticket.assigned_technician)
+            ? ticket.assigned_technician
+            : (ticket.technician_id.HasValue ? (await ResolveProfileAsync(ticket.technician_id.Value.ToString(), cancellationToken))?.Email : null);
+        if (!string.IsNullOrWhiteSpace(assignedTechnician) && !string.Equals(assignedTechnician, ticket.requester, StringComparison.OrdinalIgnoreCase))
         {
             await _notificationService.CreateNotificationForEmailAsync(
-                ticket.assigned_technician,
+                assignedTechnician,
                 "Ticket status updated",
                 statusMessage,
                 "ticket_status",
@@ -483,7 +544,7 @@ public class TicketsController : Controller
             var commenter = User.Identity?.Name ?? User.FindFirst("email")?.Value ?? "Someone";
             var commentRecipient = !string.Equals(ticket.requester, commenter, StringComparison.OrdinalIgnoreCase)
                 ? ticket.requester
-                : ticket.assigned_technician;
+                : assignedTechnician;
 
             if (!string.IsNullOrWhiteSpace(commentRecipient))
             {
@@ -498,6 +559,68 @@ public class TicketsController : Controller
         }
 
         TempData["Success"] = "Ticket status updated successfully.";
+        return RedirectToAction(nameof(Details), new { id });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    [Authorize(Roles = "Admin,Technician,Client")]
+    public async Task<IActionResult> AddComment(string id, string? comment, CancellationToken cancellationToken)
+    {
+        var ticket = await _ticketService.GetTicketByIdAsync(id, cancellationToken);
+        if (ticket is null)
+        {
+            return NotFound();
+        }
+
+        var email = User.Identity?.Name ?? User.FindFirst("email")?.Value ?? string.Empty;
+        var profileId = GetCurrentProfileId();
+        var canComment = User.IsInRole("Admin")
+            || (User.IsInRole("Client") && ticket.employee_id == profileId)
+            || (User.IsInRole("Technician") && (ticket.technician_id == profileId
+                || string.Equals(ticket.assigned_technician, email, StringComparison.OrdinalIgnoreCase)));
+        if (!canComment)
+        {
+            return Forbid();
+        }
+
+        var commentText = comment?.Trim();
+        if (string.IsNullOrWhiteSpace(commentText))
+        {
+            TempData["Error"] = "Enter a comment before saving.";
+            return RedirectToAction(nameof(Details), new { id });
+        }
+
+        var actor = string.IsNullOrWhiteSpace(email) ? "User" : email;
+        ticket.comments = string.IsNullOrWhiteSpace(ticket.comments)
+            ? $"{actor}: {commentText}"
+            : $"{ticket.comments}\n{actor}: {commentText}";
+        ticket.updated_at = DateTime.UtcNow;
+
+        if (!await _ticketService.UpdateTicketAsync(ticket, cancellationToken))
+        {
+            TempData["Error"] = "Unable to save the comment.";
+            return RedirectToAction(nameof(Details), new { id });
+        }
+
+        var ticketLink = Url.Action("Details", "Tickets", new { id = ticket.id }) ?? $"/Tickets/Details?id={ticket.id}";
+        var recipient = User.IsInRole("Client")
+            ? (!string.IsNullOrWhiteSpace(ticket.assigned_technician)
+                ? ticket.assigned_technician
+                : (ticket.technician_id.HasValue ? (await ResolveProfileAsync(ticket.technician_id.Value.ToString(), cancellationToken))?.Email : null))
+            : ticket.requester;
+        if (!string.IsNullOrWhiteSpace(recipient) && !string.Equals(recipient, email, StringComparison.OrdinalIgnoreCase))
+        {
+            await _notificationService.CreateNotificationForEmailAsync(
+                recipient,
+                "New comment on your ticket",
+                $"{actor} added a comment to ticket '{ticket.title}'.",
+                "ticket_comment",
+                ticketLink,
+                cancellationToken);
+        }
+
+        TempData["Success"] = "Comment added successfully.";
         return RedirectToAction(nameof(Details), new { id });
     }
 
@@ -580,6 +703,15 @@ public class TicketsController : Controller
     {
         var value = User.FindFirst("profile_id")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         return Guid.TryParse(value, out var profileId) ? profileId : Guid.Empty;
+    }
+
+    private bool IsAssignedToCurrentTechnician(Ticket ticket)
+    {
+        var profileId = GetCurrentProfileId();
+        var email = User.Identity?.Name ?? User.FindFirst("email")?.Value ?? string.Empty;
+        return (profileId != Guid.Empty && ticket.technician_id == profileId)
+            || (!string.IsNullOrWhiteSpace(email)
+                && string.Equals(ticket.assigned_technician, email, StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task PopulateCatalogAsync(CancellationToken cancellationToken)

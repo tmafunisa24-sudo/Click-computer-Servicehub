@@ -4,8 +4,15 @@
     ViewData["Title"] = "Ticket Details";
     var isAdmin = User?.IsInRole("Admin") == true;
     var isTechnician = User?.IsInRole("Technician") == true;
+    var isTechnicianOnly = isTechnician && !isAdmin;
     var technicians = ViewBag.Technicians as IEnumerable<ServiceHub_IT.Models.Profile> ?? Enumerable.Empty<ServiceHub_IT.Models.Profile>();
     var attachments = ViewBag.Attachments as IEnumerable<ServiceHub_IT.Models.TicketAttachment> ?? Enumerable.Empty<ServiceHub_IT.Models.TicketAttachment>();
+    var assignedTechnicianProfile = Model.technician_id.HasValue
+        ? technicians.FirstOrDefault(technician => technician.Id == Model.technician_id.Value)
+        : null;
+    var assignedTechnicianName = assignedTechnicianProfile is not null
+        ? (!string.IsNullOrWhiteSpace(assignedTechnicianProfile.FullName) ? assignedTechnicianProfile.FullName : assignedTechnicianProfile.Email)
+        : (string.IsNullOrWhiteSpace(Model.assigned_technician) ? "Unassigned" : Model.assigned_technician);
 }
 
 @section Styles {
@@ -17,7 +24,7 @@
         <div class="ticket-title-area">
             <span class="ticket-header-badge"><i class="bi bi-card-list"></i> Ticket Details</span>
             <h1>Ticket Details</h1>
-            <p>Review and update ticket progress, technician assignments, and key details.</p>
+            <p>Review ticket progress and key details.</p>
         </div>
         <a asp-controller="Tickets" asp-action="Index" class="btn btn-primary btn-create-ticket">Back to Tickets</a>
     </div>
@@ -55,7 +62,7 @@
                         </div>
                         <div class="detail-block">
                             <div class="detail-label">Assigned Technician</div>
-                            <div class="detail-value">@(string.IsNullOrWhiteSpace(Model.assigned_technician) ? "Unassigned" : Model.assigned_technician)</div>
+                            <div class="detail-value">@assignedTechnicianName</div>
                         </div>
                         <div class="detail-block">
                             <div class="detail-label">Category</div>
@@ -124,6 +131,17 @@
                             </div>
                         </div>
                     }
+                    <div class="mt-4">
+                        <div class="detail-label">Comments</div>
+                        @if (string.IsNullOrWhiteSpace(Model.comments))
+                        {
+                            <div class="text-muted">No comments yet.</div>
+                        }
+                        else
+                        {
+                            <div class="border rounded p-3" style="white-space: pre-line;">@Model.comments</div>
+                        }
+                    </div>
                 </div>
             </div>
 
@@ -134,39 +152,43 @@
                         <div class="progress" role="progressbar" aria-label="Ticket progress">
                             <div class="progress-bar" style="width: @GetProgress(Model.status)%"></div>
                         </div>
-                        <div class="mt-3 text-muted small">Status flow: Open → Assigned → In Progress → Resolved → Closed</div>
+                        <div class="mt-3 text-muted small">Status flow: In Progress → Resolved → Closed</div>
                     </div>
                 </div>
+
+                @if (!isAdmin && !isTechnician)
+                {
+                    <div class="ticket-action-card mb-3">
+                        <div class="card-body p-4">
+                            <h5 class="mb-3">Add Comment</h5>
+                            <form asp-controller="Tickets" asp-action="AddComment" asp-route-id="@Model.id" method="post">
+                                @Html.AntiForgeryToken()
+                                <textarea name="comment" class="form-control mb-3" rows="3" placeholder="Add a comment"></textarea>
+                                <button type="submit" class="btn btn-assign w-100">Save Comment</button>
+                            </form>
+                        </div>
+                    </div>
+                }
 
                 <div class="ticket-actions">
                     @if (isAdmin)
                     {
                         <div class="ticket-action-card mb-3">
                             <div class="card-body p-4">
-                                <h5 class="mb-3">Assign Technician</h5>
-                                <form asp-controller="Tickets" asp-action="AssignTechnician" asp-route-id="@Model.id" method="post">
+                                <h5 class="mb-3">Update Due Date</h5>
+                                <form asp-controller="Tickets" asp-action="UpdateDueDate" asp-route-id="@Model.id" method="post">
                                     @Html.AntiForgeryToken()
                                     <div class="mb-3">
-                                        <label class="form-label">Technician</label>
-                                        <select name="assignedTechnician" class="form-select ticket-select">
-                                            <option value="">Select technician</option>
-                                            @foreach (var tech in technicians)
-                                            {
-                                                <option value="@tech.Email" selected="@(string.Equals(Model.assigned_technician, tech.Email, StringComparison.OrdinalIgnoreCase))">@tech.FullName (@tech.Email)</option>
-                                            }
-                                        </select>
+                                        <label class="form-label" for="dueDate">Due Date</label>
+                                        <input type="date" id="dueDate" name="dueDate" class="form-control ticket-date-input" value="@(Model.due_date?.ToString("yyyy-MM-dd"))" />
                                     </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">Due Date</label>
-                                        <input type="date" name="dueDate" class="form-control ticket-date-input" value="@(Model.due_date?.ToString("yyyy-MM-dd"))" />
-                                    </div>
-                                    <button type="submit" class="btn btn-assign w-100">Assign Technician</button>
+                                    <button type="submit" class="btn btn-assign w-100">Save Due Date</button>
                                 </form>
                             </div>
                         </div>
                     }
 
-                    @if (isAdmin || isTechnician)
+                    @if (isTechnicianOnly)
                     {
                     <div class="ticket-action-card mb-3">
                         <div class="card-body p-4">
@@ -176,26 +198,16 @@
                                 <div class="mb-3">
                                     <label class="form-label">Status</label>
                                     <select name="Status" class="form-select ticket-select">
-                                        <option value="Open" selected="@(string.Equals(Model.status, "Open", StringComparison.OrdinalIgnoreCase))">Open</option>
-                                        <option value="Assigned" selected="@(string.Equals(Model.status, "Assigned", StringComparison.OrdinalIgnoreCase))">Assigned</option>
+                                        @if (!isTechnicianOnly)
+                                        {
+                                            <option value="Open" selected="@(string.Equals(Model.status, "Open", StringComparison.OrdinalIgnoreCase))">Open</option>
+                                            <option value="Assigned" selected="@(string.Equals(Model.status, "Assigned", StringComparison.OrdinalIgnoreCase))">Assigned</option>
+                                        }
                                         <option value="In Progress" selected="@(string.Equals(Model.status, "In Progress", StringComparison.OrdinalIgnoreCase))">In Progress</option>
                                         <option value="Resolved" selected="@(string.Equals(Model.status, "Resolved", StringComparison.OrdinalIgnoreCase))">Resolved</option>
                                         <option value="Closed" selected="@(string.Equals(Model.status, "Closed", StringComparison.OrdinalIgnoreCase))">Closed</option>
                                     </select>
                                 </div>
-                                @if (isAdmin)
-                                {
-                                    <div class="mb-3">
-                                        <label class="form-label">Assigned Technician</label>
-                                        <select name="AssignedTechnician" class="form-select ticket-select">
-                                            <option value="">Unassigned</option>
-                                            @foreach (var tech in technicians)
-                                            {
-                                                <option value="@tech.Email" selected="@(string.Equals(Model.assigned_technician, tech.Email, StringComparison.OrdinalIgnoreCase))">@tech.FullName (@tech.Email)</option>
-                                            }
-                                        </select>
-                                    </div>
-                                }
                                 <div class="mb-3">
                                     <label class="form-label">Due Date</label>
                                     <input type="date" name="DueDate" class="form-control ticket-date-input" value="@(Model.due_date?.ToString("yyyy-MM-dd"))" />
@@ -232,12 +244,10 @@
     {
         return status switch
         {
-            "Open" => "20%",
-            "Assigned" => "40%",
-            "In Progress" => "60%",
-            "Resolved" => "80%",
-            "Closed" => "100%",
-            _ => "20%"
+            "In Progress" => "33",
+            "Resolved" => "66",
+            "Closed" => "100",
+            _ => "0"
         };
     }
 }

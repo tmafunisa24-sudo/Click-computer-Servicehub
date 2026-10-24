@@ -34,7 +34,7 @@ public class TicketService
         return tickets.Select(NormalizeTicket).ToList();
     }
 
-    public async Task<IReadOnlyList<Ticket>> GetTicketsAsync(string? requester = null, string? assignedTechnician = null, Guid? employeeId = null, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Ticket>> GetTicketsAsync(string? requester = null, string? assignedTechnician = null, Guid? employeeId = null, Guid? technicianId = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(_settings.Url) || string.IsNullOrWhiteSpace(_settings.ApiKey))
         {
@@ -51,6 +51,10 @@ public class TicketService
             if (!string.IsNullOrWhiteSpace(assignedTechnician))
             {
                 query.Add($"assigned_technician=eq.{Uri.EscapeDataString(assignedTechnician)}");
+            }
+            if (technicianId.HasValue && technicianId.Value != Guid.Empty)
+            {
+                query.Add($"technician_id=eq.{Uri.EscapeDataString(technicianId.Value.ToString())}");
             }
             if (employeeId.HasValue && employeeId.Value != Guid.Empty)
             {
@@ -120,9 +124,23 @@ public class TicketService
         return await GetTicketsAsync(requester: requester, cancellationToken: cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Ticket>> GetTechnicianTicketsAsync(string assignedTechnician, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Ticket>> GetTechnicianTicketsAsync(Guid technicianId, string assignedTechnician, CancellationToken cancellationToken = default)
     {
-        return await GetTicketsAsync(assignedTechnician: assignedTechnician, cancellationToken: cancellationToken);
+        var tickets = new List<Ticket>();
+        if (technicianId != Guid.Empty)
+        {
+            tickets.AddRange(await GetTicketsAsync(technicianId: technicianId, cancellationToken: cancellationToken));
+        }
+
+        if (!string.IsNullOrWhiteSpace(assignedTechnician))
+        {
+            tickets.AddRange(await GetTicketsAsync(assignedTechnician: assignedTechnician, cancellationToken: cancellationToken));
+        }
+
+        return tickets
+            .GroupBy(ticket => ticket.id ?? Guid.NewGuid().ToString(), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
     }
 
     public async Task<bool> CreateTicketAsync(Ticket ticket, string? accessToken = null, CancellationToken cancellationToken = default)
@@ -179,9 +197,16 @@ public class TicketService
             try
             {
                 var inserted = JsonSerializer.Deserialize<List<Ticket>>(responseBody, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                if (inserted is { Count: > 0 } && !string.IsNullOrWhiteSpace(inserted[0].id))
+                if (inserted is { Count: > 0 })
                 {
-                    ticket.id = inserted[0].id;
+                    var insertedTicket = inserted[0];
+                    if (!string.IsNullOrWhiteSpace(insertedTicket.id))
+                    {
+                        ticket.id = insertedTicket.id;
+                    }
+
+                    ticket.technician_id = insertedTicket.technician_id;
+                    ticket.assigned_technician = insertedTicket.assigned_technician;
                 }
             }
             catch (Exception ex)
@@ -207,6 +232,7 @@ public class TicketService
             var payload = new Dictionary<string, object?>
             {
                 ["status"] = ticket.status,
+                ["technician_id"] = ticket.technician_id,
                 ["assigned_technician"] = ticket.assigned_technician,
                 ["due_date"] = ticket.due_date,
                 ["comments"] = ticket.comments,
@@ -214,10 +240,7 @@ public class TicketService
                 ["payment_status"] = ticket.payment_status,
                 ["updated_at"] = ticket.updated_at
             };
-            var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
-            {
-                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-            });
+            var json = JsonSerializer.Serialize(payload);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
             _httpClient.DefaultRequestHeaders.Clear();
             _httpClient.DefaultRequestHeaders.Add("apikey", _settings.ApiKey);
@@ -409,21 +432,6 @@ public class TicketService
             _logger.LogWarning(ex, "Unable to confirm payment for ticket {TicketId}.", ticketId);
             return false;
         }
-    }
-
-    public async Task<bool> AssignTicketAsync(string id, string assignedTechnician, DateTime? dueDate = null, CancellationToken cancellationToken = default)
-    {
-        var ticket = await GetTicketAsync(id, cancellationToken);
-        if (ticket is null)
-        {
-            return false;
-        }
-
-        ticket.assigned_technician = assignedTechnician;
-        ticket.due_date = dueDate;
-        ticket.status = "Assigned";
-        ticket.updated_at = DateTime.UtcNow;
-        return await UpdateTicketAsync(ticket, cancellationToken);
     }
 
     public async Task<bool> DeleteTicketAsync(string id, CancellationToken cancellationToken = default)

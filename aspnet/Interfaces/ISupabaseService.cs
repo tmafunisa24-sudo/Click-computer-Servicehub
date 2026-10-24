@@ -41,6 +41,4 @@ public interface ISupabaseService
     Task<bool> CreateMaintenanceAsync(Maintenance maintenance, CancellationToken cancellationToken = default);
     Task<bool> UpdateMaintenanceAsync(Maintenance maintenance, CancellationToken cancellationToken = default);
     Task<bool> DeleteMaintenanceAsync(Guid id, CancellationToken cancellationToken = default);
-
-    
 }

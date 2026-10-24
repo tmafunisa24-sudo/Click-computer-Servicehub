@@ -12,14 +12,12 @@ namespace ServiceHub_IT.Controllers;
 public class AdminController : Controller
 {
     private readonly TicketService _ticketService;
-    private readonly AssetService _assetService;
     private readonly ISupabaseService _supabaseService;
     private readonly ILogger<AdminController> _logger;
 
-    public AdminController(TicketService ticketService, AssetService assetService, ISupabaseService supabaseService, ILogger<AdminController> logger)
+    public AdminController(TicketService ticketService, ISupabaseService supabaseService, ILogger<AdminController> logger)
     {
         _ticketService = ticketService;
-        _assetService = assetService;
         _supabaseService = supabaseService;
         _logger = logger;
     }
@@ -27,7 +25,6 @@ public class AdminController : Controller
     public async Task<IActionResult> Index(CancellationToken cancellationToken)
     {
         var tickets = (await _ticketService.GetTicketsAsync(cancellationToken: cancellationToken)).ToList();
-        var assets = (await _assetService.GetAssetsAsync(new AssetSearchViewModel(), cancellationToken)).ToList();
         var profiles = (await _supabaseService.GetAllProfilesAsync(cancellationToken)).ToList();
 
         var clientProfiles = profiles.Where(p => string.Equals(p.Role, "Client", StringComparison.OrdinalIgnoreCase)).ToList();
@@ -63,7 +60,6 @@ public class AdminController : Controller
             LowestTechnicianCount = lowestTechnician?.Count ?? 0,
             Tickets = tickets,
             Profiles = profiles,
-            Assets = assets,
             TechnicianPerformance = technicianPerformance
         };
 
@@ -80,7 +76,8 @@ public class AdminController : Controller
                 Keys = new[]
                 {
                     p.Email,
-                    p.FullName
+                    p.FullName,
+                    p.Id.ToString()
                 }
                 .Where(key => !string.IsNullOrWhiteSpace(key))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -91,13 +88,16 @@ public class AdminController : Controller
         var technicianRows = technicianProfileKeys
             .Select(profile =>
             {
-                var assignedTickets = tickets.Count(t => profile.Keys.Any(key => string.Equals(t.assigned_technician, key, StringComparison.OrdinalIgnoreCase)));
-                var resolvedTickets = tickets.Count(t => profile.Keys.Any(key => string.Equals(t.assigned_technician, key, StringComparison.OrdinalIgnoreCase))
+                var assignedTickets = tickets.Count(t => profile.Keys.Any(key => string.Equals(t.assigned_technician, key, StringComparison.OrdinalIgnoreCase))
+                    || (Guid.TryParse(profile.Keys.LastOrDefault(), out var profileId) && t.technician_id == profileId));
+                var resolvedTickets = tickets.Count(t => (profile.Keys.Any(key => string.Equals(t.assigned_technician, key, StringComparison.OrdinalIgnoreCase))
+                    || (Guid.TryParse(profile.Keys.LastOrDefault(), out var profileId) && t.technician_id == profileId))
                     && (string.Equals(t.status, "Resolved", StringComparison.OrdinalIgnoreCase)
                         || string.Equals(t.status, "Closed", StringComparison.OrdinalIgnoreCase)));
 
                 var resolutionHours = tickets
-                    .Where(t => profile.Keys.Any(key => string.Equals(t.assigned_technician, key, StringComparison.OrdinalIgnoreCase))
+                    .Where(t => (profile.Keys.Any(key => string.Equals(t.assigned_technician, key, StringComparison.OrdinalIgnoreCase))
+                        || (Guid.TryParse(profile.Keys.LastOrDefault(), out var profileId) && t.technician_id == profileId))
                         && (string.Equals(t.status, "Resolved", StringComparison.OrdinalIgnoreCase)
                             || string.Equals(t.status, "Closed", StringComparison.OrdinalIgnoreCase)))
                     .Select(t =>

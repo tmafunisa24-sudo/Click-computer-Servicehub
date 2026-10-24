@@ -181,12 +181,6 @@ public class HelpDeskController : Controller
         var prediction = _ticketPredictionModel.Predict(ticket.title, ticket.description, ticket.category, ticket.priority);
         ViewBag.AiPrediction = prediction;
 
-        var technicians = (await _supabaseService.GetAllProfilesAsync(cancellationToken))
-            .Where(p => string.Equals(p.Role, "Technician", StringComparison.OrdinalIgnoreCase) || string.Equals(p.Role, "Admin", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(p => p.FullName)
-            .ThenBy(p => p.Email)
-            .ToList();
-        ViewBag.Technicians = technicians;
         ViewBag.Attachments = await _ticketService.GetTicketAttachmentsAsync(id, User.FindFirst("supabase_access_token")?.Value, cancellationToken);
         if (string.IsNullOrWhiteSpace(ticket.screenshot_url) && string.IsNullOrWhiteSpace(ticket.image_url)
             && ViewBag.Attachments is IReadOnlyList<TicketAttachment> attachments && attachments.Count > 0)
@@ -199,9 +193,14 @@ public class HelpDeskController : Controller
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    [Authorize(Roles = "Admin,Technician")]
+    [Authorize(Roles = "Technician")]
     public async Task<IActionResult> AcceptTicket(string id, CancellationToken cancellationToken)
     {
+        if (User.IsInRole("Admin"))
+        {
+            return Forbid();
+        }
+
         var ticket = await _ticketService.GetTicketAsync(id, cancellationToken);
         if (ticket is null)
         {
@@ -257,18 +256,21 @@ public class HelpDeskController : Controller
         }
 
         var user = User.Identity?.Name ?? User.FindFirst("email")?.Value ?? string.Empty;
+        if (User.IsInRole("Technician") && !User.IsInRole("Admin") && !IsAssignedToCurrentTechnician(ticket, user))
+        {
+            return Forbid();
+        }
+
+        if (User.IsInRole("Technician") && !User.IsInRole("Admin")
+            && !IsTechnicianStatus(model.Status))
+        {
+            TempData["Error"] = "Technicians may only set tickets to In Progress, Resolved, or Closed.";
+            return RedirectToAction(nameof(Details), new { id });
+        }
+
         ticket.status = model.Status;
         ticket.updated_at = DateTime.UtcNow;
         ticket.due_date = model.DueDate;
-        if (!string.IsNullOrWhiteSpace(model.AssignedTechnician))
-        {
-            ticket.assigned_technician = model.AssignedTechnician;
-            if (string.Equals(model.Status, "Open", StringComparison.OrdinalIgnoreCase))
-            {
-                ticket.status = "Assigned";
-            }
-        }
-
         if (!string.IsNullOrWhiteSpace(model.Comment))
         {
             ticket.comments = string.IsNullOrWhiteSpace(ticket.comments)
@@ -347,5 +349,20 @@ public class HelpDeskController : Controller
     {
         var value = User.FindFirst("profile_id")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         return Guid.TryParse(value, out var profileId) ? profileId : Guid.Empty;
+    }
+
+    private bool IsAssignedToCurrentTechnician(Ticket ticket, string email)
+    {
+        var profileId = GetCurrentProfileId();
+        return (profileId != Guid.Empty && ticket.technician_id == profileId)
+            || (!string.IsNullOrWhiteSpace(email)
+                && string.Equals(ticket.assigned_technician, email, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsTechnicianStatus(string? status)
+    {
+        return string.Equals(status, "In Progress", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "Resolved", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "Closed", StringComparison.OrdinalIgnoreCase);
     }
 }

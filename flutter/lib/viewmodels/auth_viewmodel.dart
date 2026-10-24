@@ -4,20 +4,15 @@ import 'package:flutter/foundation.dart';
 import '../models/profile.dart';
 import '../services/auth_service.dart';
 
-
 enum AuthState {
-  /// App just started, we don't know if user is logged in yet.
   unknown,
-
-  /// User is authenticated.
   authenticated,
-
-  /// User is not authenticated.
   unauthenticated,
 }
 
 class AuthViewModel extends ChangeNotifier {
   final AuthService _service;
+
   AuthViewModel([AuthService? service]) : _service = service ?? AuthService();
 
   AuthState _state = AuthState.unknown;
@@ -31,12 +26,11 @@ class AuthViewModel extends ChangeNotifier {
   bool _isSendingReset = false;
   String? _resetError;
   bool _resetSent = false;
-    bool _registrationEmailSent = false;
+  bool _registrationEmailSent = false;
   bool _registrationNeedsConfirmation = false;
   String? _pendingConfirmationEmail;
 
-
-  // ── Getters ──
+  // --- Getters ---
   AuthState get state => _state;
   Profile? get user => _user;
   String? get error => _error;
@@ -52,15 +46,40 @@ class AuthViewModel extends ChangeNotifier {
   bool get isSendingReset => _isSendingReset;
   String? get resetError => _resetError;
   bool get resetSent => _resetSent;
-    bool get registrationEmailSent => _registrationEmailSent;
+  bool get registrationEmailSent => _registrationEmailSent;
   bool get registrationNeedsConfirmation => _registrationNeedsConfirmation;
   String? get pendingConfirmationEmail => _pendingConfirmationEmail;
-  
+
+  // --- Helpers ---
+
+  /// The Flutter app is CLIENT-ONLY. Technician and Admin accounts
+  /// must use the ASP.NET web portal instead.
+  static bool _isBlockedRole(String role) {
+    final r = role.toLowerCase();
+    return r == 'admin' || r == 'technician';
+  }
+
+  static String _blockedMessage(String role) {
+    return role.toLowerCase() == 'admin'
+        ? 'Admin accounts can only access the web portal. Please use the browser version.'
+        : 'Technician accounts can only access the web portal. Please use the browser version.';
+  }
+
+  // --- Auth actions ---
+
   /// Called once at app startup.
   /// Tries to fetch the current user using any stored cookie.
   Future<void> bootstrap() async {
     try {
       final user = await _service.getCurrentUser();
+      // BLOCK non-client roles from using the mobile app.
+      if (_isBlockedRole(user.role)) {
+        await _service.logout();
+        _user = null;
+        _state = AuthState.unauthenticated;
+        notifyListeners();
+        return;
+      }
       _user = user;
       _state = AuthState.authenticated;
     } catch (_) {
@@ -85,6 +104,18 @@ class AuthViewModel extends ChangeNotifier {
         password: password,
         rememberMe: rememberMe,
       );
+
+      // BLOCK Technician and Admin from logging in via mobile.
+      if (_isBlockedRole(user.role)) {
+        await _service.logout();
+        _error = _blockedMessage(user.role);
+        _user = null;
+        _state = AuthState.unauthenticated;
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
       _user = user;
       _state = AuthState.authenticated;
       _isLoading = false;
@@ -106,9 +137,8 @@ class AuthViewModel extends ChangeNotifier {
     _state = AuthState.unauthenticated;
     notifyListeners();
   }
-  
-  /// Register a new account. On success, the user is auto-logged-in
-  /// (the backend sets the auth cookie during registration).
+
+  /// Register a new account.
   Future<bool> register({
     required String email,
     required String password,
@@ -143,7 +173,7 @@ class AuthViewModel extends ChangeNotifier {
       _registrationNeedsConfirmation = requiresConfirmation;
       _pendingConfirmationEmail = registeredEmail;
       notifyListeners();
-      return false;
+      return false; // Does not log in automatically
     } catch (e) {
       _registerError = e.toString();
       _isRegistering = false;
@@ -152,9 +182,6 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  /// Request a password-reset email. On success, [resetSent] becomes true
-  /// and the UI should display a "check your email" confirmation.
-  /// We never reveal whether the email exists (security).
   Future<bool> forgotPassword({required String email}) async {
     _isSendingReset = true;
     _resetError = null;
@@ -194,8 +221,6 @@ class AuthViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Update the current user's profile.
-  /// On success, refreshes `_user` in place.
   Future<bool> updateProfile({
     String? fullName,
     String? phone,

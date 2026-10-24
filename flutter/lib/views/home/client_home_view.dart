@@ -43,13 +43,7 @@ class _ClientHomeViewState extends State<ClientHomeView> {
       appBar: AppTopBar(
         title: 'My Dashboard',
         showBackButton: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
-            onPressed: () => context.read<AuthViewModel>().logout(),
-          ),
-        ],
+        
       ),
       body: SafeArea(
         child: RefreshIndicator(

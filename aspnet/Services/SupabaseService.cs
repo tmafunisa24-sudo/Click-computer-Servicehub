@@ -259,12 +259,13 @@ public sealed class SupabaseService : ISupabaseService
             ["password"] = password
         };
 
+        var signupRequestUrl = "auth/v1/signup";
         if (!string.IsNullOrWhiteSpace(_settings.RedirectUrl))
         {
-            payloadObject["redirect_to"] = _settings.RedirectUrl.Trim();
+            signupRequestUrl += $"?redirect_to={Uri.EscapeDataString(_settings.RedirectUrl.Trim())}";
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, "auth/v1/signup")
+        using var request = new HttpRequestMessage(HttpMethod.Post, signupRequestUrl)
         {
             Content = new StringContent(JsonSerializer.Serialize(payloadObject), Encoding.UTF8, "application/json")
         };

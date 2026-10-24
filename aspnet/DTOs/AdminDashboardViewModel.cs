@@ -17,6 +17,5 @@ public class AdminDashboardViewModel
     public int LowestTechnicianCount { get; set; }
     public IReadOnlyList<Ticket> Tickets { get; set; } = Array.Empty<Ticket>();
     public IReadOnlyList<Profile> Profiles { get; set; } = Array.Empty<Profile>();
-    public IReadOnlyList<Asset> Assets { get; set; } = Array.Empty<Asset>();
     public TechnicianPerformanceViewModel TechnicianPerformance { get; set; } = new();
 }

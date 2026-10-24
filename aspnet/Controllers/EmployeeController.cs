@@ -41,7 +41,7 @@ public class EmployeeController : Controller
     }
 
     [HttpGet]
-    public IActionResult ContactSupport() => View();
+    public IActionResult ClientEnquiry() => View();
 
     private Guid GetCurrentProfileId()
     {

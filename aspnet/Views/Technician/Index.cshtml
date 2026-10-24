@@ -47,15 +47,17 @@
                                 <thead>
                                     <tr>
                                         <th>Title</th>
-                                        <th>Details</th>
+                                        <th>Status</th>
+                                        <th>Due Date</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     @foreach (var ticket in Model.Tickets)
                                     {
                                         <tr>
-                                            <td>@ticket.title</td>
-                                            <td>@ticket.description</td>
+                                            <td><a asp-controller="Tickets" asp-action="Details" asp-route-id="@ticket.id">@ticket.title</a></td>
+                                            <td><span class="badge bg-secondary">@ticket.status</span></td>
+                                            <td>@(ticket.due_date?.ToString("dd MMM yyyy") ?? "Not set")</td>
                                         </tr>
                                     }
                                 </tbody>
