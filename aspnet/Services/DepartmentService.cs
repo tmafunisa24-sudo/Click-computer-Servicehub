@@ -33,12 +33,13 @@ public class DepartmentService
 
         try
         {
-            _httpClient.DefaultRequestHeaders.Clear();
-            _httpClient.DefaultRequestHeaders.Add("apikey", _settings.ApiKey);
-            _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_settings.ApiKey}");
-            _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"{_settings.Url.TrimEnd('/')}/rest/v1/departments?select=*");
+            request.Headers.Clear();
+            request.Headers.Add("apikey", _settings.ApiKey);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _settings.ApiKey);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-            using var response = await _httpClient.GetAsync($"{_settings.Url.TrimEnd('/')}/rest/v1/departments?select=*", cancellationToken);
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 return Array.Empty<Department>();
@@ -58,12 +59,13 @@ public class DepartmentService
     {
         try
         {
-            _httpClient.DefaultRequestHeaders.Clear();
-            _httpClient.DefaultRequestHeaders.Add("apikey", _settings.ApiKey);
-            _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_settings.ApiKey}");
-            _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"{_settings.Url.TrimEnd('/')}/rest/v1/departments?id=eq.{id}&select=*");
+            request.Headers.Clear();
+            request.Headers.Add("apikey", _settings.ApiKey);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _settings.ApiKey);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-            using var response = await _httpClient.GetAsync($"{_settings.Url.TrimEnd('/')}/rest/v1/departments?id=eq.{id}&select=*", cancellationToken);
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 return null;
@@ -112,8 +114,9 @@ public class DepartmentService
     request.Headers.Clear();
     request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     request.Headers.Add("apikey", _settings.ApiKey);
-    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _settings.ApiKey);
+    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", string.IsNullOrWhiteSpace(_settings.ServiceRoleKey) ? _settings.ApiKey : _settings.ServiceRoleKey);
     request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+    request.Headers.Add("Prefer", "return=representation");
 
     using var response = await _httpClient.SendAsync(request, cancellationToken);
     var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -161,8 +164,9 @@ public async Task<bool> UpdateDepartmentAsync(Department department, Cancellatio
     request.Headers.Clear();
     request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     request.Headers.Add("apikey", _settings.ApiKey);
-    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _settings.ApiKey);
+    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", string.IsNullOrWhiteSpace(_settings.ServiceRoleKey) ? _settings.ApiKey : _settings.ServiceRoleKey);
     request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+    request.Headers.Add("Prefer", "return=representation");
 
     using var response = await _httpClient.SendAsync(request, cancellationToken);
     var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -182,12 +186,13 @@ public async Task<bool> UpdateDepartmentAsync(Department department, Cancellatio
     {
         try
         {
-            _httpClient.DefaultRequestHeaders.Clear();
-            _httpClient.DefaultRequestHeaders.Add("apikey", _settings.ApiKey);
-            _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_settings.ApiKey}");
-            _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            using var request = new HttpRequestMessage(HttpMethod.Delete, $"{_settings.Url.TrimEnd('/')}/rest/v1/departments?id=eq.{id}");
+            request.Headers.Clear();
+            request.Headers.Add("apikey", _settings.ApiKey);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _settings.ApiKey);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-            using var response = await _httpClient.DeleteAsync($"{_settings.Url.TrimEnd('/')}/rest/v1/departments?id=eq.{id}", cancellationToken);
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)

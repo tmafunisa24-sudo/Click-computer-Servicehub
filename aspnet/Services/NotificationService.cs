@@ -37,7 +37,8 @@ public class NotificationService
         var created = await _supabaseService.CreateNotificationAsync(notification, cancellationToken);
         if (!created)
         {
-            _logger.LogWarning("NotificationService failed to create notification for user {UserId} title {Title} link {Link}", userId, title, link);
+            throw new InvalidOperationException(
+                $"Notification insert returned an unsuccessful result for user {userId}, title '{title}', link '{link}'.");
         }
     }
 

@@ -121,7 +121,10 @@ public sealed class MaintenanceApiController : ControllerBase
             }
 
             var asset = await _assetService.GetAssetAsync(record.asset_id.ToString(), cancellationToken);
-            var technician = await _supabaseService.GetProfileByIdAsync(record.technician_id, cancellationToken);
+            var technician = await _supabaseService.GetProfileByIdAsync(
+                record.technician_id,
+                User.FindFirst("supabase_access_token")?.Value ?? string.Empty,
+                cancellationToken);
 
             return Ok(new
             {

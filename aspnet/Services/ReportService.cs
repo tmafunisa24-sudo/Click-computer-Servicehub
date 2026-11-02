@@ -1,4 +1,5 @@
 using System.Text;
+using System.Net.Http.Headers;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
@@ -119,14 +120,14 @@ public class ReportService
     }
 
     var endpoint = $"{_settings.Url.TrimEnd('/')}/rest/v1/{table}?{string.Join('&', query)}";
-
-    _httpClient.DefaultRequestHeaders.Clear();
-    _httpClient.DefaultRequestHeaders.Add("apikey", _settings.ApiKey);
-    _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_settings.ApiKey}");
-    _httpClient.DefaultRequestHeaders.Accept.Add(
+    using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+    request.Headers.Clear();
+    request.Headers.Add("apikey", _settings.ApiKey);
+    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _settings.ApiKey);
+    request.Headers.Accept.Add(
         new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 
-    using var response = await _httpClient.GetAsync(endpoint, cancellationToken);
+    using var response = await _httpClient.SendAsync(request, cancellationToken);
     if (!response.IsSuccessStatusCode)
     {
         _logger.LogWarning("Supabase report fetch failed for {Type}. Status: {Status}",

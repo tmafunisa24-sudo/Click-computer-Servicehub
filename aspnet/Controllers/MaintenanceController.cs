@@ -70,7 +70,10 @@ public class MaintenanceController : Controller
         }
 
         var asset = await _assetService.GetAssetAsync(maintenance.asset_id.ToString(), cancellationToken);
-        var technician = await _supabaseService.GetProfileByIdAsync(maintenance.technician_id, cancellationToken);
+        var technician = await _supabaseService.GetProfileByIdAsync(
+            maintenance.technician_id,
+            User.FindFirst("supabase_access_token")?.Value ?? string.Empty,
+            cancellationToken);
 
         ViewBag.AssetName = asset?.asset_name ?? maintenance.asset_id.ToString();
         ViewBag.TechnicianName = technician is not null ? (string.IsNullOrWhiteSpace(technician.FullName) ? technician.Email : technician.FullName) : maintenance.technician_id.ToString();
@@ -259,22 +262,13 @@ public class MaintenanceController : Controller
 
     private async Task<Guid> GetCurrentProfileIdAsync(CancellationToken cancellationToken)
     {
-        var idClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (!string.IsNullOrWhiteSpace(idClaim) && Guid.TryParse(idClaim, out var profileId))
+        var idClaim = User.FindFirst("profile_id")?.Value;
+        if (!string.IsNullOrWhiteSpace(idClaim) && Guid.TryParse(idClaim, out var profileId) && profileId != Guid.Empty)
         {
             return profileId;
         }
 
-        var email = User.FindFirst(ClaimTypes.Email)?.Value;
-        if (!string.IsNullOrWhiteSpace(email))
-        {
-            var profile = await _supabaseService.GetProfileByEmailAsync(email, cancellationToken);
-            if (profile is not null)
-            {
-                return profile.Id;
-            }
-        }
-
+        // No fallback to email lookup - return Guid.Empty if profile_id claim is missing
         return Guid.Empty;
     }
 }

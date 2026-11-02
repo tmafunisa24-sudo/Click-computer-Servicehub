@@ -892,7 +892,6 @@ class _UpdateTicketSheetState extends State<_UpdateTicketSheet> {
     final ok = await widget.viewModel.updateStatus(
       ticketId: id,
       status: _status ?? widget.ticket.status,
-      assignedTechnician: _technician,
       comment: _commentController.text.trim().isEmpty
           ? null
           : _commentController.text.trim(),

@@ -167,7 +167,7 @@ public class HelpDeskController : Controller
     [HttpGet]
     public async Task<IActionResult> Details(string id, CancellationToken cancellationToken)
     {
-        var ticket = await _ticketService.GetTicketAsync(id, cancellationToken);
+        var ticket = await _ticketService.GetTicketAsync(id, User.FindFirst("supabase_access_token")?.Value, cancellationToken);
         if (ticket is null)
         {
             return NotFound();
@@ -201,7 +201,7 @@ public class HelpDeskController : Controller
             return Forbid();
         }
 
-        var ticket = await _ticketService.GetTicketAsync(id, cancellationToken);
+        var ticket = await _ticketService.GetTicketAsync(id, User.FindFirst("supabase_access_token")?.Value, cancellationToken);
         if (ticket is null)
         {
             return NotFound();
@@ -215,7 +215,7 @@ public class HelpDeskController : Controller
             ? $"{user}: accepted ticket"
             : $"{ticket.comments}\n{user}: accepted ticket";
 
-        var updated = await _ticketService.UpdateTicketAsync(ticket, cancellationToken);
+        var updated = await _ticketService.UpdateTicketAsync(ticket, User.FindFirst("supabase_access_token")?.Value, cancellationToken);
         if (!updated)
         {
             TempData["Error"] = "Unable to accept the ticket.";
@@ -249,7 +249,7 @@ public class HelpDeskController : Controller
     [Authorize(Roles = "Admin,Technician")]
     public async Task<IActionResult> UpdateStatus(string id, UpdateTicketStatusViewModel model, CancellationToken cancellationToken)
     {
-        var ticket = await _ticketService.GetTicketAsync(id, cancellationToken);
+        var ticket = await _ticketService.GetTicketAsync(id, User.FindFirst("supabase_access_token")?.Value, cancellationToken);
         if (ticket is null)
         {
             return NotFound();
@@ -278,7 +278,7 @@ public class HelpDeskController : Controller
                 : $"{ticket.comments}\n{user}: {model.Comment}";
         }
 
-        var updated = await _ticketService.UpdateTicketAsync(ticket, cancellationToken);
+        var updated = await _ticketService.UpdateTicketAsync(ticket, User.FindFirst("supabase_access_token")?.Value, cancellationToken);
         if (!updated)
         {
             TempData["Error"] = "Unable to update the ticket.";

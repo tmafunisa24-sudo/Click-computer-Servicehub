@@ -113,7 +113,10 @@ public sealed class UsersApiController : ControllerBase
 
         try
         {
-            var profile = await _supabaseService.GetProfileByIdAsync(id, cancellationToken);
+            var profile = await _supabaseService.GetProfileByIdAsync(
+                id,
+                User.FindFirst("supabase_access_token")?.Value ?? string.Empty,
+                cancellationToken);
             if (profile is null)
             {
                 return NotFound(new ApiErrorDto { Error = "User not found." });
@@ -211,7 +214,8 @@ public sealed class UsersApiController : ControllerBase
         return raw?.Trim().ToLowerInvariant() switch
         {
             "active" => "Active",
-            "pending" or "awaiting approval" => "Pending",
+            "pending" => "Pending",
+            "awaiting approval" => "Awaiting Approval",
             "disabled" => "Disabled",
             "approved" => "Approved",
             _ => string.Empty,

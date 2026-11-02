@@ -42,14 +42,16 @@ class TicketService {
 Future<Ticket> updateStatus({
   required String ticketId,
   required String status,
-  String? assignedTechnician,
+  String? assignedTechnicianId,
+  bool assignmentSubmitted = false,
   String? comment,
   DateTime? dueDate,
 }) {
   return _api.updateStatus(
     ticketId: ticketId,
     status: status,
-    assignedTechnician: assignedTechnician,
+    assignedTechnicianId: assignedTechnicianId,
+    assignmentSubmitted: assignmentSubmitted,
     comment: comment,
     dueDate: dueDate,
   );

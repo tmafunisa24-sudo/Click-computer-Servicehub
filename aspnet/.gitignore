@@ -34,3 +34,12 @@ logs/
 # ── OS ──
 .DS_Store
 Thumbs.db
+
+all_cs_files.txt
+assets-report.csv
+assets-report.xlsx
+PROJECT_SOURCECODE_DOCUMENTATION.md
+tree_output.txt
+supabase_rls_policies.sql
+
+supabase_profiles.py

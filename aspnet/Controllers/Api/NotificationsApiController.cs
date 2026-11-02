@@ -44,8 +44,9 @@ public sealed class NotificationsApiController : ControllerBase
 
         try
         {
+            var accessToken = User.FindFirst("supabase_access_token")?.Value;
             var notifications = await _supabaseService.GetUserNotificationsAsync(
-                profileId, cancellationToken);
+                profileId, accessToken, cancellationToken);
 
             return Ok(notifications);
         }
@@ -84,11 +85,12 @@ public sealed class NotificationsApiController : ControllerBase
 
         try
         {
+            var accessToken = User.FindFirst("supabase_access_token")?.Value;
             var recent = await _supabaseService.GetNotificationsForUserAsync(
-                profileId, limit, cancellationToken);
+                profileId, limit, accessToken, cancellationToken);
 
             var unread = await _supabaseService.GetUnreadNotificationCountAsync(
-                profileId, cancellationToken);
+                profileId, accessToken, cancellationToken);
 
             return Ok(new
             {
@@ -133,8 +135,9 @@ public sealed class NotificationsApiController : ControllerBase
 
         try
         {
+            var accessToken = User.FindFirst("supabase_access_token")?.Value;
             var count = await _supabaseService.GetUnreadNotificationCountAsync(
-                profileId, cancellationToken);
+                profileId, accessToken, cancellationToken);
 
             return Ok(new { count });
         }

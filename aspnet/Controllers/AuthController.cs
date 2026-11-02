@@ -61,12 +61,20 @@ public class AuthController : Controller
                 return View(model);
             }
 
-            var profile = await _supabaseService.GetProfileByEmailAsync(model.Email, HttpContext.RequestAborted);
+            var cancellationToken = HttpContext.RequestAborted;
+            var userId = await _supabaseService.GetUserIdFromAccessTokenAsync(signInResult.AccessToken, cancellationToken);
+            if (userId is null)
+            {
+                ModelState.AddModelError(string.Empty, "Unable to load your profile. Please try again.");
+                return View(model);
+            }
+
+            var profile = await _supabaseService.GetProfileByIdAsync(userId.Value, signInResult.AccessToken, cancellationToken);
             if (profile is null)
             {
                 await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
                 Response.Cookies.Delete("ServiceHubITAuth");
-                TempData["ErrorMessage"] = "Profile not found.";
+                ModelState.AddModelError(string.Empty, "Profile not found.");
                 return View(model);
             }
 
@@ -78,23 +86,7 @@ public class AuthController : Controller
                 return View(model);
             }
 
-            var rawRole = await _supabaseService.GetRoleForEmailAsync(model.Email, signInResult.AccessToken, HttpContext.RequestAborted);
-            var normalizedRole = rawRole?.Trim() ?? string.Empty;
-            normalizedRole = normalizedRole.Equals("admin", StringComparison.OrdinalIgnoreCase)
-                ? "Admin"
-                : normalizedRole.Equals("technician", StringComparison.OrdinalIgnoreCase)
-                    ? "Technician"
-                    : normalizedRole.Equals("client", StringComparison.OrdinalIgnoreCase)
-                        ? "Client"
-                    : normalizedRole.Equals("pending", StringComparison.OrdinalIgnoreCase)
-                        ? "Pending"
-                        : string.Empty;
-
-            if (string.Equals(normalizedRole, "Pending", StringComparison.OrdinalIgnoreCase))
-            {
-                TempData["ErrorMessage"] = "This account is awaiting administrator approval.";
-                return View(model);
-            }
+            var normalizedRole = profile.Role?.Trim() ?? string.Empty;
 
             if (string.IsNullOrWhiteSpace(normalizedRole))
             {
@@ -149,8 +141,9 @@ public class AuthController : Controller
     }
 
     [HttpPost]
+    [AllowAnonymous]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> SignUp(SignUpViewModel model)
+    public async Task<IActionResult> SignUp(SignUpViewModel model, CancellationToken cancellationToken)
     {
         if (!ModelState.IsValid)
         {
@@ -165,15 +158,28 @@ public class AuthController : Controller
 
         try
         {
-            var signUpResult = await _supabaseService.SignUpAsync(model.Email, model.Password, HttpContext.RequestAborted);
-            if (signUpResult.IsSuccess)
+            var signUpResult = await _supabaseService.SignUpAsync(
+                model.Email, model.Password, model.FullName, cancellationToken);
+
+            if (!signUpResult.IsSuccess)
             {
-                TempData["SuccessMessage"] = "Account created successfully. Please sign in to continue.";
+                ModelState.AddModelError(string.Empty,
+                    signUpResult.ErrorMessage ?? "Unable to create your account.");
+                return View(model);
+            }
+
+            // Because "Confirm email" is OFF, we can sign in immediately.
+            var signInResult = await _supabaseService.SignInAsync(
+                model.Email, model.Password, cancellationToken);
+
+            if (!signInResult.IsSuccess || string.IsNullOrWhiteSpace(signInResult.AccessToken))
+            {
+                TempData["SuccessMessage"] = "Account created. Please sign in.";
                 return RedirectToAction(nameof(Login));
             }
 
-            ModelState.AddModelError(string.Empty, signUpResult.ErrorMessage ?? "Unable to create your account. Please try again.");
-            return View(model);
+            TempData["AccessToken"] = signInResult.AccessToken;
+            return RedirectToAction(nameof(SelectRole));
         }
         catch (Exception ex)
         {
@@ -197,7 +203,7 @@ public class AuthController : Controller
 
         try
         {
-            var success = await _supabaseService.ResetPasswordAsync(model.Token, model.Password, HttpContext.RequestAborted);
+            var success = await _supabaseService.ResetPasswordAsync(model.Token, model.NewPassword, HttpContext.RequestAborted);
             if (success)
             {
                 TempData["SuccessMessage"] = "Your password has been reset successfully.";
@@ -225,5 +231,118 @@ public class AuthController : Controller
         Response.Cookies.Delete("sb-refresh-token");
         return RedirectToAction(nameof(Login));
     }
+    [HttpPost]
+    [AllowAnonymous]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ForgotPassword(ForgotPasswordViewModel model)
+    {
+        if (!ModelState.IsValid)
+        {
+            return View(model);
+        }
 
+        if (!_supabaseService.IsConfigured)
+        {
+            ModelState.AddModelError(string.Empty, "Authentication is not configured.");
+            return View(model);
+        }
+
+        try
+        {
+            var resetUrl = Url.Action(
+                "ResetPassword", "Auth", null, Request.Scheme, Request.Host.ToString())
+                ?? $"{Request.Scheme}://{Request.Host}/Auth/ResetPassword";
+
+            var ok = await _supabaseService.SendPasswordResetAsync(
+                model.Email, resetUrl, HttpContext.RequestAborted);
+
+            if (ok)
+            {
+                TempData["SuccessMessage"] = "If an account exists with that email, a reset link is on its way.";
+                return RedirectToAction(nameof(Login));
+            }
+
+            ModelState.AddModelError(string.Empty, "Unable to send reset email. Please try again later.");
+            return View(model);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Forgot password failed.");
+            ModelState.AddModelError(string.Empty, "Unable to send reset email. Please try again later.");
+            return View(model);
+        }
+    }
+
+    [HttpPost]
+    [AllowAnonymous]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Confirmation(
+        string accessToken, string refreshToken, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(accessToken))
+            return RedirectToAction(nameof(Login));
+
+        var userId = await _supabaseService.GetUserIdFromAccessTokenAsync(accessToken, cancellationToken);
+        if (userId is null)
+            return RedirectToAction(nameof(Login));
+
+        await _supabaseService.MarkProfileConfirmedAsync(userId.Value, cancellationToken);
+
+        TempData["AccessToken"] = accessToken;
+        return RedirectToAction(nameof(SelectRole));
+    }
+
+    [HttpGet]
+    [AllowAnonymous]
+    public IActionResult SelectRole()
+    {
+        if (TempData["AccessToken"] is not string token || string.IsNullOrWhiteSpace(token))
+            return RedirectToAction(nameof(Login));
+
+        TempData["AccessToken"] = token;
+        return View();
+    }
+
+    [HttpPost]
+    [AllowAnonymous]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> SelectRole(
+        string roleChoice, CancellationToken cancellationToken)
+    {
+        if (TempData["AccessToken"] is not string accessToken ||
+            string.IsNullOrWhiteSpace(accessToken))
+            return RedirectToAction(nameof(Login));
+
+        var userId = await _supabaseService.GetUserIdFromAccessTokenAsync(accessToken, cancellationToken);
+        if (userId is null)
+            return RedirectToAction(nameof(Login));
+
+        var chosen = roleChoice?.Trim().ToLowerInvariant();
+        if (chosen != "client" && chosen != "technician")
+        {
+            TempData["AccessToken"] = accessToken;
+            ModelState.AddModelError(string.Empty, "Please choose Client or Technician.");
+            return View();
+        }
+
+        if (chosen == "client")
+        {
+            await _supabaseService.SetRoleAndStatusAsync(userId.Value, "Client", "Active", true, cancellationToken);
+            TempData["SuccessMessage"] = "Welcome! Your account is ready.";
+            return RedirectToAction(nameof(Login));
+        }
+        else
+        {
+            await _supabaseService.SetRoleAndStatusAsync(userId.Value, "Technician", "Awaiting Approval", true, cancellationToken);
+            TempData["InfoMessage"] = "Your technician account is pending approval. You will be notified by email once approved.";
+            return RedirectToAction(nameof(Login));
+        }
+    }
+
+    [HttpGet]
+    [AllowAnonymous]
+    public IActionResult PendingApproval()
+    {
+        return View();
+    }
 }

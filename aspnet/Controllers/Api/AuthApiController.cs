@@ -72,8 +72,19 @@ public sealed class AuthApiController : ControllerBase
             }
 
             // 2. Load profile
-            var profile = await _supabaseService.GetProfileByEmailAsync(
-                request.Email, cancellationToken);
+            var userId = await _supabaseService.GetUserIdFromAccessTokenAsync(
+                signIn.AccessToken, cancellationToken);
+
+            if (userId is null)
+            {
+                return Unauthorized(new ApiErrorDto
+                {
+                    Error = "Unable to load your profile. Please try again."
+                });
+            }
+
+            var profile = await _supabaseService.GetProfileByIdAsync(
+                userId.Value, signIn.AccessToken, cancellationToken);
 
             if (profile is null)
             {
@@ -196,7 +207,7 @@ public sealed class AuthApiController : ControllerBase
             // 1. Create the Supabase auth user.
             //    SignUpAsync already sends the confirmation email via Supabase.
             var signUp = await _supabaseService.SignUpAsync(
-                request.Email, request.Password, cancellationToken);
+                request.Email, request.Password, null, cancellationToken);
 
             if (!signUp.IsSuccess)
             {
@@ -261,8 +272,12 @@ public sealed class AuthApiController : ControllerBase
         {
             // Ask Supabase to send the reset email. It's a no-op if the
             // email isn't registered — that's intentional (don't leak).
+            var resetUrl = Url.Action(
+                "ResetPassword", "Auth", null, Request.Scheme, Request.Host.ToString())
+                ?? $"{Request.Scheme}://{Request.Host}/Auth/ResetPassword";
+
             await _supabaseService.SendPasswordResetAsync(
-                request.Email, cancellationToken);
+                request.Email, resetUrl, cancellationToken);
 
             return Ok(new ApiForgotPasswordResponse
             {
@@ -303,7 +318,9 @@ public sealed class AuthApiController : ControllerBase
         }
 
         var profile = await _supabaseService.GetProfileByIdAsync(
-            profileId, cancellationToken);
+            profileId,
+            User.FindFirst("supabase_access_token")?.Value ?? string.Empty,
+            cancellationToken);
 
         if (profile is null)
         {
@@ -336,7 +353,10 @@ public sealed class AuthApiController : ControllerBase
 
         try
         {
-            var profile = await _supabaseService.GetProfileByIdAsync(profileId, cancellationToken);
+            var profile = await _supabaseService.GetProfileByIdAsync(
+                profileId,
+                User.FindFirst("supabase_access_token")?.Value ?? string.Empty,
+                cancellationToken);
             if (profile is null)
             {
                 return NotFound(new ApiErrorDto { Error = "Profile not found." });

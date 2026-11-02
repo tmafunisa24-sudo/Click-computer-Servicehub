@@ -21,7 +21,8 @@ public sealed class CreateTicketRequest
 public sealed class UpdateTicketStatusRequest
 {
     public string Status { get; set; } = string.Empty;
-    public string? AssignedTechnician { get; set; }
+    public Guid? AssignedTechnicianId { get; set; }
+    public bool AssignmentSubmitted { get; set; }
     public string? Comment { get; set; }
     public DateTime? DueDate { get; set; }
 }

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ServiceHub_IT.DTOs.Api;
 using ServiceHub_IT.Interfaces;
+using ServiceHub_IT.Models;
 using ServiceHub_IT.Services;
 
 namespace ServiceHub_IT.Controllers.Api;
@@ -51,32 +52,48 @@ public sealed class TicketsApiController : ControllerBase
             var email = User.Identity?.Name
                 ?? User.FindFirst(ClaimTypes.Email)?.Value
                 ?? string.Empty;
+            var profileIdClaim = User.FindFirst("profile_id")?.Value;
+            var accessToken = User.FindFirst("supabase_access_token")?.Value;
+
+            if (!Guid.TryParse(profileIdClaim, out var profileId) ||
+                string.IsNullOrWhiteSpace(accessToken))
+            {
+                _logger.LogWarning(
+                    "API Tickets request is missing required identity data. HasProfileId={HasProfileId}, HasToken={HasToken}.",
+                    Guid.TryParse(profileIdClaim, out _),
+                    !string.IsNullOrWhiteSpace(accessToken));
+
+                return Unauthorized(new ApiErrorDto
+                {
+                    Error = "Your session has expired. Please log in again."
+                });
+            }
+
+            _logger.LogInformation(
+                "API Tickets request for ProfileId: {ProfileId}, HasToken: {HasToken}",
+                profileId,
+                !string.IsNullOrWhiteSpace(accessToken));
 
             IReadOnlyList<ServiceHub_IT.Models.Ticket> tickets;
 
             if (User.IsInRole("Admin"))
             {
                 tickets = await _ticketService.GetTicketsAsync(
+                    accessToken: accessToken,
                     cancellationToken: cancellationToken);
             }
             else if (User.IsInRole("Technician"))
             {
                 tickets = await _ticketService.GetTicketsAsync(
                     assignedTechnician: email,
+                    accessToken: accessToken,
                     cancellationToken: cancellationToken);
             }
             else
             {
-                var profileIdClaim = User.FindFirst("profile_id")?.Value
-                    ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-                if (!Guid.TryParse(profileIdClaim, out var profileId))
-                {
-                    return Ok(Array.Empty<object>());
-                }
-
                 tickets = await _ticketService.GetTicketsAsync(
                     employeeId: profileId,
+                    accessToken: accessToken,
                     cancellationToken: cancellationToken);
             }
 
@@ -123,7 +140,7 @@ public sealed class TicketsApiController : ControllerBase
 
         try
         {
-            var ticket = await _ticketService.GetTicketByIdAsync(id, cancellationToken);
+            var ticket = await _ticketService.GetTicketByIdAsync(id, User.FindFirst("supabase_access_token")?.Value, cancellationToken);
             if (ticket is null)
             {
                 return NotFound(new ApiErrorDto { Error = "Ticket not found." });
@@ -287,6 +304,8 @@ public sealed class TicketsApiController : ControllerBase
                 });
             }
 
+            string? imageUploadWarning = null;
+
             // ── Upload images (optional) ──
             var files = (request.Images ?? new List<IFormFile>())
                 .Where(f => f is not null && f.Length > 0)
@@ -313,13 +332,8 @@ public sealed class TicketsApiController : ControllerBase
                     _logger.LogWarning(ex,
                         "Images failed to upload for new ticket {TicketId}.", ticket.id);
 
-                    // Ticket was created; images failed. Return the ticket but
-                    // signal that uploads failed via a field.
-                    return StatusCode(201, new
-                    {
-                        ticket,
-                        warning = "The ticket was created, but one or more images could not be uploaded."
-                    });
+                    // Keep processing notifications: the ticket exists even if its images do not.
+                    imageUploadWarning = "The ticket was created, but one or more images could not be uploaded.";
                 }
             }
 
@@ -332,7 +346,7 @@ public sealed class TicketsApiController : ControllerBase
                 ? requesterProfile.FullName
                 : requester;
 
-                var ticketLink = $"/tickets/{ticket.id}";
+                var ticketLink = $"/Tickets/Details?id={Uri.EscapeDataString(ticket.id ?? string.Empty)}";
 
                 var adminProfiles = (await _supabaseService.GetProfilesByRoleAsync("Admin", cancellationToken))
                 .Where(profile => profile is not null && profile.Id != Guid.Empty)
@@ -378,7 +392,9 @@ public sealed class TicketsApiController : ControllerBase
                 _logger.LogError(ex, "Notification creation failed for ticket {TicketId}.", ticket.id);
             }
 
-            return StatusCode(201, ticket);
+            return imageUploadWarning is null
+                ? StatusCode(201, ticket)
+                : StatusCode(201, new { ticket, warning = imageUploadWarning });
         }
         catch (HttpRequestException ex)
         {
@@ -421,10 +437,15 @@ public async Task<IActionResult> UpdateStatus(
         return BadRequest(new ApiErrorDto { Error = "Status is required." });
     }
 
+        if ((request.AssignmentSubmitted || request.AssignedTechnicianId.HasValue) && !User.IsInRole("Admin"))
+        {
+            return Forbid();
+        }
+
     try
     {
         // ── Load ticket ──
-        var ticket = await _ticketService.GetTicketByIdAsync(id, cancellationToken);
+        var ticket = await _ticketService.GetTicketByIdAsync(id, User.FindFirst("supabase_access_token")?.Value, cancellationToken);
         if (ticket is null)
         {
             return NotFound(new ApiErrorDto { Error = "Ticket not found." });
@@ -458,7 +479,70 @@ public async Task<IActionResult> UpdateStatus(
 
         // ── Validate workflow transition ──
         var normalizedNextStatus = NormalizeStatus(request.Status);
-        if (!CanTransition(ticket.status, normalizedNextStatus))
+
+        // ── Apply updates ──
+        var actor = User.Identity?.Name
+            ?? User.FindFirst(ClaimTypes.Email)?.Value
+            ?? "Someone";
+
+        // Optional assignment changes are admin-only; technicians may only self-assign an unassigned ticket.
+        var assignmentChanged = false;
+        Profile? assignedTechnicianProfile = null;
+        if (request.AssignmentSubmitted || request.AssignedTechnicianId.HasValue)
+        {
+            if (!request.AssignedTechnicianId.HasValue)
+            {
+                assignmentChanged = ticket.technician_id.HasValue || !string.IsNullOrWhiteSpace(ticket.assigned_technician);
+                ticket.technician_id = null;
+                ticket.assigned_technician = null;
+            }
+            else
+            {
+                assignedTechnicianProfile = await _supabaseService.GetProfileByIdAsync(
+                    request.AssignedTechnicianId.Value,
+                    User.FindFirst("supabase_access_token")?.Value ?? string.Empty,
+                    cancellationToken);
+                if (assignedTechnicianProfile is null || assignedTechnicianProfile.Id == Guid.Empty
+                    || !string.Equals(assignedTechnicianProfile.Role, "Technician", StringComparison.OrdinalIgnoreCase))
+                {
+                    return BadRequest(new ApiErrorDto { Error = "The selected technician could not be found." });
+                }
+
+                assignmentChanged = ticket.technician_id != assignedTechnicianProfile.Id
+                    || !string.Equals(ticket.assigned_technician, assignedTechnicianProfile.Email, StringComparison.OrdinalIgnoreCase);
+                ticket.technician_id = assignedTechnicianProfile.Id;
+                ticket.assigned_technician = assignedTechnicianProfile.Email;
+            }
+        }
+        else if (normalizedNextStatus == "Assigned"
+                 && string.IsNullOrWhiteSpace(ticket.assigned_technician)
+                 && User.IsInRole("Technician"))
+        {
+            var profileIdClaim = User.FindFirst("profile_id")?.Value
+                ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            assignedTechnicianProfile = Guid.TryParse(profileIdClaim, out var currentTechnicianId)
+                ? await _supabaseService.GetProfileByIdAsync(
+                    currentTechnicianId,
+                    User.FindFirst("supabase_access_token")?.Value ?? string.Empty,
+                    cancellationToken)
+                : null;
+            if (assignedTechnicianProfile is not null && assignedTechnicianProfile.Id != Guid.Empty)
+            {
+                ticket.technician_id = assignedTechnicianProfile.Id;
+                ticket.assigned_technician = assignedTechnicianProfile.Email;
+                assignmentChanged = true;
+            }
+        }
+
+        if (assignmentChanged && assignedTechnicianProfile is not null
+            && string.Equals(ticket.status, "Open", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(normalizedNextStatus, ticket.status, StringComparison.OrdinalIgnoreCase))
+        {
+            normalizedNextStatus = "Assigned";
+        }
+
+        var statusUnchanged = string.Equals(ticket.status, normalizedNextStatus, StringComparison.OrdinalIgnoreCase);
+        if (!CanTransition(ticket.status, normalizedNextStatus) && !(assignmentChanged && statusUnchanged))
         {
             return BadRequest(new ApiErrorDto
             {
@@ -468,26 +552,8 @@ public async Task<IActionResult> UpdateStatus(
             });
         }
 
-        // ── Apply updates ──
-        var actor = User.Identity?.Name
-            ?? User.FindFirst(ClaimTypes.Email)?.Value
-            ?? "Someone";
-
         ticket.status = normalizedNextStatus;
         ticket.updated_at = DateTime.UtcNow;
-
-        // Optional: assignment (admin can assign, or technician self-assigns)
-        if (!string.IsNullOrWhiteSpace(request.AssignedTechnician))
-        {
-            ticket.assigned_technician = request.AssignedTechnician.Trim();
-        }
-        else if (normalizedNextStatus == "Assigned"
-                 && string.IsNullOrWhiteSpace(ticket.assigned_technician)
-                 && User.IsInRole("Technician"))
-        {
-            // Auto-assign to the technician if they're marking it as Assigned
-            ticket.assigned_technician = actor;
-        }
 
         // Optional: due date
         if (request.DueDate.HasValue)
@@ -511,7 +577,7 @@ public async Task<IActionResult> UpdateStatus(
         }
 
         // ── Persist ──
-        var updated = await _ticketService.UpdateTicketAsync(ticket, cancellationToken);
+        var updated = await _ticketService.UpdateTicketAsync(ticket, User.FindFirst("supabase_access_token")?.Value, cancellationToken);
         if (!updated)
         {
             return StatusCode(500, new ApiErrorDto
@@ -530,8 +596,19 @@ public async Task<IActionResult> UpdateStatus(
 
             try
             {
-                var ticketLink = $"/tickets/{ticket.id}";
+                var ticketLink = $"/Tickets/Details?id={Uri.EscapeDataString(ticket.id ?? string.Empty)}";
                 var statusMessage = $"Ticket '{ticket.title}' is now {ticket.status}";
+
+                if (assignmentChanged && assignedTechnicianProfile is not null)
+                {
+                    await _notificationService.CreateNotificationAsync(
+                        assignedTechnicianProfile.Id,
+                        "Ticket Assigned",
+                        $"Ticket '{ticket.title}' has been assigned to you.",
+                        "ticket_assigned",
+                        ticketLink,
+                        cancellationToken);
+                }
 
                 //notify the requester (unless they are the one updating)
                 if(!string.IsNullOrWhiteSpace(ticket.requester) && !string.Equals(ticket.requester, actor, StringComparison.OrdinalIgnoreCase))
@@ -591,7 +668,7 @@ public async Task<IActionResult> UpdateStatus(
             }
 
         // Return the updated ticket
-        var refreshed = await _ticketService.GetTicketByIdAsync(id, cancellationToken);
+        var refreshed = await _ticketService.GetTicketByIdAsync(id, User.FindFirst("supabase_access_token")?.Value, cancellationToken);
         return Ok(refreshed ?? ticket);
     }
     catch (Exception ex)
@@ -633,7 +710,7 @@ public async Task<IActionResult> SetPaymentMethod(
 
     try
     {
-        var ticket = await _ticketService.GetTicketByIdAsync(id, cancellationToken);
+        var ticket = await _ticketService.GetTicketByIdAsync(id, User.FindFirst("supabase_access_token")?.Value, cancellationToken);
         if (ticket is null)
         {
             return NotFound(new ApiErrorDto { Error = "Ticket not found." });
@@ -668,7 +745,7 @@ public async Task<IActionResult> SetPaymentMethod(
         ticket.payment_status = "Pending";
         ticket.updated_at = DateTime.UtcNow;
 
-        var updated = await _ticketService.UpdateTicketAsync(ticket, cancellationToken);
+        var updated = await _ticketService.UpdateTicketAsync(ticket, User.FindFirst("supabase_access_token")?.Value, cancellationToken);
         if (!updated)
         {
             return StatusCode(500, new ApiErrorDto
@@ -677,7 +754,7 @@ public async Task<IActionResult> SetPaymentMethod(
             });
         }
 
-        var refreshed = await _ticketService.GetTicketByIdAsync(id, cancellationToken);
+        var refreshed = await _ticketService.GetTicketByIdAsync(id, User.FindFirst("supabase_access_token")?.Value, cancellationToken);
         return Ok(refreshed ?? ticket);
     }
     catch (Exception ex)
@@ -707,7 +784,7 @@ public async Task<IActionResult> ConfirmPayment(
 
     try
     {
-        var ticket = await _ticketService.GetTicketByIdAsync(id, cancellationToken);
+        var ticket = await _ticketService.GetTicketByIdAsync(id, User.FindFirst("supabase_access_token")?.Value, cancellationToken);
         if (ticket is null)
         {
             return NotFound(new ApiErrorDto { Error = "Ticket not found." });
@@ -744,7 +821,7 @@ public async Task<IActionResult> ConfirmPayment(
             });
         }
 
-        var refreshed = await _ticketService.GetTicketByIdAsync(id, cancellationToken);
+        var refreshed = await _ticketService.GetTicketByIdAsync(id, User.FindFirst("supabase_access_token")?.Value, cancellationToken);
         return Ok(refreshed ?? ticket);
     }
     catch (Exception ex)

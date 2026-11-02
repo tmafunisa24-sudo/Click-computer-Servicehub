@@ -66,10 +66,11 @@ public sealed class DashboardApiController : ControllerBase
     // ────────────────────────────────────────────────────────
     private async Task<IActionResult> BuildAdminDashboard(CancellationToken ct)
     {
+        var accessToken = User.FindFirst("supabase_access_token")?.Value;
         // Load all tickets, assets, profiles in parallel
-        var ticketsTask = _ticketService.GetTicketsAsync(cancellationToken: ct);
-        var assetsTask = _assetService.GetAssetsAsync(new ServiceHub_IT.Models.AssetSearchViewModel(), ct);
-        var profilesTask = _supabaseService.GetAllProfilesAsync(ct);
+        var ticketsTask = _ticketService.GetTicketsAsync(cancellationToken: ct, accessToken: accessToken);
+        var assetsTask = _assetService.GetAssetsAsync(new ServiceHub_IT.Models.AssetSearchViewModel(), ct, accessToken);
+        var profilesTask = _supabaseService.GetAllProfilesAsync(accessToken, ct);
 
         await Task.WhenAll(ticketsTask, assetsTask, profilesTask);
 
@@ -152,15 +153,16 @@ public sealed class DashboardApiController : ControllerBase
     // ────────────────────────────────────────────────────────
     private async Task<IActionResult> BuildTechnicianDashboard(CancellationToken ct)
     {
+        var accessToken = User.FindFirst("supabase_access_token")?.Value;
         var email = User.Identity?.Name
             ?? User.FindFirst(ClaimTypes.Email)?.Value
             ?? string.Empty;
 
         var ticketsTask = _ticketService.GetTicketsAsync(
-            assignedTechnician: email, cancellationToken: ct);
+            assignedTechnician: email, cancellationToken: ct, accessToken: accessToken);
 
         var allAssetsTask = _assetService.GetAssetsAsync(
-            new ServiceHub_IT.Models.AssetSearchViewModel(), ct);
+            new ServiceHub_IT.Models.AssetSearchViewModel(), ct, accessToken);
 
         await Task.WhenAll(ticketsTask, allAssetsTask);
 
@@ -203,6 +205,7 @@ public sealed class DashboardApiController : ControllerBase
     // ────────────────────────────────────────────────────────
     private async Task<IActionResult> BuildClientDashboard(CancellationToken ct)
     {
+        var accessToken = User.FindFirst("supabase_access_token")?.Value;
         var profileIdClaim = User.FindFirst("profile_id")?.Value
             ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
@@ -227,10 +230,10 @@ public sealed class DashboardApiController : ControllerBase
             ?? string.Empty;
 
         var ticketsTask = _ticketService.GetTicketsAsync(
-            employeeId: profileId, cancellationToken: ct);
+            employeeId: profileId, cancellationToken: ct, accessToken: accessToken);
 
         var allAssetsTask = _assetService.GetAssetsAsync(
-            new ServiceHub_IT.Models.AssetSearchViewModel(), ct);
+            new ServiceHub_IT.Models.AssetSearchViewModel(), ct, accessToken);
 
         await Task.WhenAll(ticketsTask, allAssetsTask);
 

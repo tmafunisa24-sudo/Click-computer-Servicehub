@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Mvc;
 using ServiceHub_IT.Models;
 using System.Text;
@@ -96,12 +97,13 @@ public class ReportsController : Controller
         }
 
         var endpoint = $"{_settings.Url.TrimEnd('/')}/rest/v1/{table}?{string.Join('&', query)}";
-        _httpClient.DefaultRequestHeaders.Clear();
-        _httpClient.DefaultRequestHeaders.Add("apikey", _settings.ApiKey);
-        _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_settings.ApiKey}");
-        _httpClient.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+        request.Headers.Clear();
+        request.Headers.Add("apikey", _settings.ApiKey);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _settings.ApiKey);
+        request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 
-        using var response = await _httpClient.GetAsync(endpoint, cancellationToken);
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             return new List<Dictionary<string, object?>>();

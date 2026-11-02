@@ -29,3 +29,6 @@ logs/
 # ── OS ──
 .DS_Store
 Thumbs.db
+
+aspnet.zip
+Flutter_Code_Documentation.md
